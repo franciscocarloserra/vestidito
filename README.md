@@ -4,6 +4,9 @@ A small three.js simulator for learning how to draft the base pattern of a sleev
 
 Live: https://franciscocarloserra.github.io/vestidito/
 
+<img width="1669" height="994" alt="Screenshot_20261101_093747" src="https://github.com/user-attachments/assets/c95eee7f-416c-4823-8e4a-815aac9d79b2" />
+
+
 The UI is in Spanish or English depending on the browser language. It works on mobile.
 
 Run locally:
