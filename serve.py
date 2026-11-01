@@ -15,6 +15,10 @@ class H(http.server.SimpleHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
 
+    def end_headers(self):  # no caching: edits show up on plain reload
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
     def log_message(self, *a):
         pass
 
