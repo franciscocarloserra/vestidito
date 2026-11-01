@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>vestidito</title>
+<script>
+const LOG_URL = /^(localhost|127\.)/.test(location.hostname) ? '/log' : null, SLOW_FRAME_MS = 60, LONGTASK_MS = 80;
+(() => {
+  const send = (type, msg) => { if (!LOG_URL) return; try { navigator.sendBeacon(LOG_URL, JSON.stringify({ t: Date.now(), type, msg: String(msg).slice(0, 2000) })) } catch (e) {} };
+  for (const k of ['error', 'warn']) { const o = console[k]; console[k] = (...a) => { send(k, a.map(x => x && x.stack || x).join(' ')); o.apply(console, a) } }
+  addEventListener('error', e => send('exception', (e.error && e.error.stack) || e.message));
+  addEventListener('unhandledrejection', e => send('rejection', e.reason && e.reason.stack || e.reason));
+  try { new PerformanceObserver(l => l.getEntries().forEach(x => x.duration > LONGTASK_MS && send('longtask', Math.round(x.duration) + 'ms'))).observe({ entryTypes: ['longtask'] }) } catch (e) {}
+  let last = performance.now(), slow = 0;
+  (function f(now) { if (now - last > SLOW_FRAME_MS && document.visibilityState === 'visible') { slow++; if (slow % 30 === 1) send('slowframe', Math.round(now - last) + 'ms n=' + slow) } last = now; requestAnimationFrame(f) })(last);
+  send('load', location.href);
+})();
+</script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#111;--panel:#19191c;--fg:#ddd;--mut:#888;--acc:#e58bb0}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px system-ui,sans-serif;overflow:hidden}
+#app{display:grid;grid-template-columns:250px 1fr auto;grid-template-rows:34px 1fr 26px;height:100%}
+header{grid-column:1/-1;display:flex;align-items:center;padding:0 12px;font-weight:600;letter-spacing:.5px;border-bottom:1px solid #222}
+#side{overflow:auto;padding:6px 10px;background:var(--panel)}
+#side h4{margin:10px 0 4px;font-size:11px;text-transform:uppercase;color:var(--mut);font-weight:500}
+.row{display:grid;grid-template-columns:86px 1fr 30px;align-items:center;gap:6px;margin:2px 0;cursor:default}
+.row b{font-weight:400;color:var(--acc);text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--acc)}
+.more{display:none}.more.open{display:block}
+button{background:#26262b;color:var(--fg);border:1px solid #333;border-radius:4px;padding:3px 8px;cursor:pointer;font:inherit}
+button.on{background:#5a2a40;border-color:var(--acc)}
+button.link{background:none;border:none;color:var(--mut);padding:2px 0;font-size:12px}
+.tg{display:flex;flex-wrap:wrap;gap:4px}
+#view{position:relative;min-width:0;min-height:0;overflow:hidden}
+#view canvas{position:absolute;inset:0}
+#molde{width:430px;background:#141416;display:flex;flex-direction:column;border-left:1px solid #222}
+#molde.hidden{display:none}
+#molde .bar{display:flex;align-items:center;gap:8px;padding:4px 8px;color:var(--mut)}
+#svg{flex:1;min-height:0}
+footer{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid #222;color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden}
+#stepTxt{flex:1;overflow:hidden;text-overflow:ellipsis;color:#cfc}
+#legend{position:absolute;right:10px;bottom:34px;background:#1d1d21;border:1px solid #333;border-radius:6px;padding:10px 12px;font-size:12px;display:none;z-index:5;line-height:1.7}
+#legend.open{display:block}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:middle}
+@media (max-width:760px){
+html,body{overflow:auto;height:auto}
+#app{display:flex;flex-direction:column;height:auto}
+header{height:34px;flex:none}
+#view{height:58vh;flex:none;order:1}
+#molde{width:auto;height:70vh;border-left:none;border-top:1px solid #222;order:2}
+#side{order:3;overflow:visible;padding:8px 14px}
+footer{order:0;position:sticky;top:0;z-index:4;background:var(--bg);height:30px;flex:none}
+.row{grid-template-columns:96px 1fr 34px;margin:8px 0}
+input[type=range]{height:26px}
+button{padding:7px 12px}
+#legend{position:fixed;left:8px;right:8px;bottom:8px}
+}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body>
+<div id="app">
+  <header>vestidito 👗</header>
+  <div id="side">
+    <h4 data-t>Medidas</h4><div id="med"></div>
+    <h4 data-t>Vestido</h4><div id="ves"></div>
+    <h4 data-t>Tela</h4><div class="tg" id="tela"></div>
+    <h4 data-t>Ver</h4><div class="tg" id="ver"></div>
+  </div>
+  <div id="view"></div>
+  <div id="molde"><div class="bar"><button id="prev">‹</button><span id="stepN"></span><button id="next">›</button></div><div id="svg"></div></div>
+  <footer><span id="ease"></span><span id="stepTxt"></span><button class="link" id="dropBtn" data-t>soltar</button><button class="link" id="legBtn" data-t>leyenda</button></footer>
+</div>
+<div id="legend" data-t>
+  <div><b>Fit</b> (holgura = vestido − cuerpo)</div>
+  <div><span class="sw" style="background:#e04848"></span>ajustado (&lt;0) <span class="sw" style="background:#f0a040"></span>0 <span class="sw" style="background:#60c070"></span>3 <span class="sw" style="background:#40b0c0"></span>8 <span class="sw" style="background:#5060e0"></span>16+ cm</div>
+  <div><b>Anillos</b> <span class="sw" style="background:#ff7ab0"></span>busto <span class="sw" style="background:#ffd24a"></span>cintura <span class="sw" style="background:#4ad8ff"></span>cadera</div>
+  <div><b>Molde</b> punteado = guías · rosa = contorno · amarillo = pinza · izquierda = doblez</div>
+  <div><b>3D</b> arrastrar = rotar · rueda = zoom · doble clic o «soltar» = soltar tela · en móvil: un dedo rota, dos hacen zoom</div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---- tunables
+const NR = 30, NC = 80, SUBSTEPS = 2, ITERS = 10, GRAVITY = -980, MARGIN = 0.6, DRESS_OFF = 0.4;
+const FORM_BOTTOM = 4, POLE_R = 1.6, BASE_R = 32, NECK_H = 6; // cm: form ends this far below crotch line; stand pole, tripod reach, neck block
+const TELAS = { 'rígida': { bend: 0.8, folds: 5, damp: 0.97 }, media: { bend: 0.4, folds: 7, damp: 0.98 }, fluida: { bend: 0.12, folds: 10, damp: 0.99 } };
+const FABRIC = 0xc8577f, BODY = 0xd8c6a6;
+const EASE_STOPS = [[-4, 0xe04848], [0, 0xf0a040], [3, 0x60c070], [8, 0x40b0c0], [16, 0x5060e0]];
+const MEDIDAS = [ // key, label, min, max, default, tooltip, inMore
+  ['H', 'estatura', 145, 190, 165, 'altura total'],
+  ['B', 'busto', 70, 130, 88, 'contorno por lo más saliente del busto'],
+  ['W', 'cintura', 55, 120, 68, 'contorno en lo más angosto'],
+  ['Hc', 'cadera', 75, 140, 94, 'contorno en lo más ancho de la cola'],
+  ['talle', 'talle espalda', 34, 48, 41, 'de la 7ª vértebra (nuca) a la cintura'],
+  ['esp', 'ancho espalda', 30, 46, 36, 'de hombro a hombro por la espalda', 1],
+  ['cuello', 'cuello', 30, 44, 36, 'contorno en la base del cuello', 1],
+  ['altC', 'alt. cadera', 15, 26, 20, 'de cintura a línea de cadera', 1],
+  ['sepB', 'sep. busto', 15, 24, 19, 'distancia entre puntos de busto', 1],
+];
+const VESTIDO = [
+  ['eB', 'holgura busto', 0, 16, 6, 'cm extra sobre el contorno de busto (total)'],
+  ['eW', 'holgura cintura', 0, 16, 3, 'cm extra sobre la cintura (total)'],
+  ['eH', 'holgura cadera', 0, 16, 4, 'cm extra sobre la cadera (total)'],
+  ['vuelo', 'vuelo', 0, 120, 30, 'cm que se suman al ruedo respecto de la cadera'],
+  ['largo', 'largo falda', 35, 100, 55, 'de cintura al ruedo'],
+  ['escote', 'escote del.', 3, 25, 8, 'profundidad del escote delantero', 1],
+  ['escE', 'escote esp.', 1, 20, 2, 'profundidad del escote de espalda', 1],
+  ['anchoE', 'ancho escote', 0, 6, 0, 'cm extra que se abre el escote hacia el hombro', 1],
+];
+
+const S = { tela: 'media' }, V = { vestido: true, esqueleto: false, fit: false, molde: true, girar: false };
+let step = 8, M = null, cl = null;
+const $ = id => document.getElementById(id);
+const lerp = (a, b, t) => a + (b - a) * t, clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const ellC = (a, b) => Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+const axes = (C, k) => { const a = C / ellC(1, k); return [a, k * a] };
+
+// ---- i18n: Spanish strings are the keys; English when the browser isn't Spanish
+const ES = /^es\b/.test(navigator.language || '');
+const EN = {
+  Medidas: 'Measurements', Vestido: 'Dress', Tela: 'Fabric', Ver: 'Show', soltar: 'drop', leyenda: 'legend', 'ver más': 'more', 'ver menos': 'less',
+  vestido: 'dress', esqueleto: 'skeleton', fit: 'fit', molde: 'pattern', girar: 'spin', 'rígida': 'stiff', media: 'medium', fluida: 'flowy',
+  estatura: 'height', 'altura total': 'total height', busto: 'bust', 'contorno por lo más saliente del busto': 'around the fullest part of the bust',
+  cintura: 'waist', 'contorno en lo más angosto': 'around the narrowest part', cadera: 'hip', 'contorno en lo más ancho de la cola': 'around the fullest part of the seat',
+  'talle espalda': 'back length', 'de la 7ª vértebra (nuca) a la cintura': 'from the 7th vertebra (nape) to the waist',
+  'ancho espalda': 'back width', 'de hombro a hombro por la espalda': 'shoulder to shoulder across the back',
+  cuello: 'neck', 'contorno en la base del cuello': 'around the base of the neck', 'alt. cadera': 'hip depth', 'de cintura a línea de cadera': 'from waist to hip line',
+  'sep. busto': 'bust span', 'distancia entre puntos de busto': 'distance between bust points',
+  'holgura busto': 'bust ease', 'cm extra sobre el contorno de busto (total)': 'extra cm over the bust (total)',
+  'holgura cintura': 'waist ease', 'cm extra sobre la cintura (total)': 'extra cm over the waist (total)',
+  'holgura cadera': 'hip ease', 'cm extra sobre la cadera (total)': 'extra cm over the hip (total)',
+  vuelo: 'flare', 'cm que se suman al ruedo respecto de la cadera': 'cm added to the hem over the hip',
+  'largo falda': 'skirt length', 'de cintura al ruedo': 'from waist to hem', 'escote del.': 'front neck', 'profundidad del escote delantero': 'front neckline depth',
+  'escote esp.': 'back neck', 'profundidad del escote de espalda': 'back neckline depth', 'ancho escote': 'neck widen', 'cm extra que se abre el escote hacia el hombro': 'extra cm the neckline opens toward the shoulder',
+  DELANTERO: 'FRONT', ESPALDA: 'BACK', sisa: 'armhole', doblez: 'fold', paso: 'step',
+  legend: `<div><b>Fit</b> (ease = dress − body)</div>
+  <div><span class="sw" style="background:#e04848"></span>tight (&lt;0) <span class="sw" style="background:#f0a040"></span>0 <span class="sw" style="background:#60c070"></span>3 <span class="sw" style="background:#40b0c0"></span>8 <span class="sw" style="background:#5060e0"></span>16+ cm</div>
+  <div><b>Rings</b> <span class="sw" style="background:#ff7ab0"></span>bust <span class="sw" style="background:#ffd24a"></span>waist <span class="sw" style="background:#4ad8ff"></span>hip</div>
+  <div><b>Pattern</b> dotted = guides · pink = outline · yellow = dart · left = fold</div>
+  <div><b>3D</b> drag = rotate · wheel = zoom · double click or «drop» = drop fabric · mobile: one finger rotates, two zoom</div>`,
+};
+const tr = s => ES ? s : EN[s] ?? s;
+if (!ES) document.querySelectorAll('[data-t]').forEach(e => e.id === 'legend' ? e.innerHTML = EN.legend : e.textContent = tr(e.textContent));
+document.documentElement.lang = ES ? 'es' : 'en';
+
+// ---- UI
+function sliders(el, defs) {
+  const more = document.createElement('div'); more.className = 'more';
+  for (const [k, label, min, max, def, tip, inMore] of defs) {
+    S[k] = def;
+    const r = document.createElement('label'); r.className = 'row'; r.title = tr(tip);
+    r.innerHTML = `<span>${tr(label)}</span><input type=range min=${min} max=${max} step=0.5 value=${def}><b>${def}</b>`;
+    const inp = r.querySelector('input'), out = r.querySelector('b');
+    inp.oninput = () => { S[k] = +inp.value; out.textContent = inp.value; schedule() };
+    (inMore ? more : el).appendChild(r);
+  }
+  const btn = document.createElement('button'); btn.className = 'link'; btn.textContent = tr('ver más');
+  btn.onclick = () => { more.classList.toggle('open'); btn.textContent = tr(more.classList.contains('open') ? 'ver menos' : 'ver más') };
+  el.append(more, btn);
+}
+sliders($('med'), MEDIDAS); sliders($('ves'), VESTIDO);
+for (const t in TELAS) {
+  const b = document.createElement('button'); b.textContent = tr(t); b.classList.toggle('on', t === S.tela);
+  b.onclick = () => { S.tela = t; [...$('tela').children].forEach(x => x.classList.toggle('on', x === b)); initCloth() };
+  $('tela').appendChild(b);
+}
+for (const k in V) {
+  const b = document.createElement('button'); b.textContent = tr(k); b.classList.toggle('on', V[k]);
+  b.onclick = () => { V[k] = !V[k]; b.classList.toggle('on', V[k]); applyView() };
+  $('ver').appendChild(b);
+}
+$('legBtn').onclick = () => $('legend').classList.toggle('open');
+$('prev').onclick = () => { step = Math.max(1, step - 1); drawPattern() };
+$('next').onclick = () => { step = Math.min(8, step + 1); drawPattern() };
+let tmr; function schedule() { clearTimeout(tmr); tmr = setTimeout(rebuild, 120) }
+
+// ---- pattern math (single source for SVG and 3D). d = cm below the nape, widths are per quarter piece.
+function draft() {
+  const p = {};
+  p.bW = (S.B + S.eB) / 4; p.wW = (S.W + S.eW) / 4; p.hW = (S.Hc + S.eH) / 4; p.hemW = p.hW + S.vuelo / 4;
+  p.yArm = S.B / 8 + 9; p.yW = S.talle; p.yH = S.talle + S.altC; p.yHem = S.talle + S.largo; p.yCrotch = p.yH + 9;
+  p.nw = S.cuello / 6 + 0.5 + S.anchoE; p.sx = S.esp / 2;
+  p.dart = clamp((p.bW - p.wW) * 0.55, 0, 3.5);
+  return p;
+}
+function effW(p, d) { // quarter width with darts closed
+  if (d <= p.yW) return lerp(p.bW, p.wW, clamp((d - p.yArm) / (p.yW - p.yArm), 0, 1));
+  if (d <= p.yH) return p.wW + (p.hW - p.wW) * Math.sin((d - p.yW) / (p.yH - p.yW) * Math.PI / 2);
+  return lerp(p.hW, p.hemW, (d - p.yH) / (p.yHem - p.yH));
+}
+function dartOpen(p, d, apex, end) {
+  if (d < apex || d > end) return 0;
+  return d <= p.yW ? p.dart * (d - apex) / (p.yW - apex) : p.dart * (end - d) / (end - p.yW);
+}
+
+// ---- body: elliptical sections [d, a, bFront, bBack]
+function bodyKeys(p) {
+  const rn = S.cuello / (2 * Math.PI);
+  const k = (d, C, kk, f = 1, b = 1) => { const [a, bb] = axes(C, kk); return [d, a, bb * f, bb * b] };
+  return [
+    [-3, rn, rn, rn], [0, rn, rn, rn], [4, p.sx, 5.5, 6.5],
+    k(p.yArm - 3, S.B * 0.92, 0.62, 1.05, 0.95),
+    k(p.yArm + 1, S.B, 0.72, 1.17, 0.83),
+    k(p.yW, S.W, 0.72),
+    k(p.yW + S.altC * 0.5, lerp(S.W, S.Hc, 0.8), 0.72, 0.95, 1.05),
+    k(p.yH, S.Hc, 0.7, 0.9, 1.1),
+    k(p.yCrotch, S.Hc * 0.94, 0.66, 0.88, 1.12),
+  ];
+}
+function interpKeys(K, d) { // Catmull-Rom on non-uniform knots → [a, bF, bB]
+  d = clamp(d, K[0][0], K[K.length - 1][0]);
+  let i = 0; while (i < K.length - 2 && d > K[i + 1][0]) i++;
+  const k0 = K[Math.max(i - 1, 0)], k1 = K[i], k2 = K[i + 1], k3 = K[Math.min(i + 2, K.length - 1)];
+  const h = k2[0] - k1[0], t = (d - k1[0]) / h, t2 = t * t, t3 = t2 * t, out = [];
+  for (let j = 1; j < 4; j++) {
+    const m1 = (k2[j] - k0[j]) / (k2[0] - k0[0]) * h, m2 = (k3[j] - k1[j]) / (k3[0] - k1[0]) * h;
+    out.push((2 * t3 - 3 * t2 + 1) * k1[j] + (t3 - 2 * t2 + t) * m1 + (-2 * t3 + 3 * t2) * k2[j] + (t3 - t2) * m2);
+  }
+  return out;
+}
+const bodyC = d => { const [a, f, b] = interpKeys(M.K, d); return ellC(a, (f + b) / 2) };
+function easeAt(d) { const p = M.p; return d <= p.yArm ? S.eB : d < p.yCrotch ? 4 * effW(p, d) - bodyC(d) : null }
+const _c = new THREE.Color(), _c2 = new THREE.Color();
+function easeColor(e) {
+  if (e === null || !V.fit) return _c.set(FABRIC);
+  if (e <= EASE_STOPS[0][0]) return _c.set(EASE_STOPS[0][1]);
+  for (let i = 1; i < EASE_STOPS.length; i++) if (e <= EASE_STOPS[i][0]) {
+    const [e0, c0] = EASE_STOPS[i - 1], [e1, c1] = EASE_STOPS[i];
+    return _c.set(c0).lerp(_c2.set(c1), (e - e0) / (e1 - e0));
+  }
+  return _c.set(EASE_STOPS.at(-1)[1]);
+}
+
+// ---- three setup
+const view = $('view'), renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio); view.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x111114);
+const camera = new THREE.PerspectiveCamera(35, 1, 1, 2000); camera.position.set(0, 110, 330);
+const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0, 95, 0); controls.autoRotateSpeed = 3;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x333344, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(80, 200, 150); scene.add(sun);
+const grid = new THREE.GridHelper(200, 20, 0x333333, 0x222222); scene.add(grid);
+new ResizeObserver(() => { const w = view.clientWidth, h = view.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix() }).observe(view);
+renderer.domElement.addEventListener('dblclick', () => initCloth()); $('dropBtn').onclick = () => initCloth();
+
+const bodyMat = new THREE.MeshStandardMaterial({ color: BODY, roughness: 0.7, side: THREE.DoubleSide });
+const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a32, roughness: 0.6, side: THREE.DoubleSide });
+const dressMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
+const boneMat = new THREE.LineBasicMaterial({ color: 0xffd27a, depthTest: false, transparent: true });
+let bodyG = new THREE.Group(), skelG = new THREE.Group(), bodiceM = null, skirtM = null;
+scene.add(bodyG, skelG);
+
+function gridIndex(rows, cols, keep) {
+  const idx = [];
+  for (let i = 0; i < rows - 1; i++) for (let j = 0; j < cols; j++) {
+    const j2 = (j + 1) % cols, a = i * cols + j, b = i * cols + j2, c = (i + 1) * cols + j, d = (i + 1) * cols + j2;
+    if (!keep || (keep[a] && keep[b] && keep[c])) idx.push(a, b, c);
+    if (!keep || (keep[b] && keep[d] && keep[c])) idx.push(b, d, c);
+  }
+  return idx;
+}
+function limb(p1, p2, r1, r2, mat = bodyMat) {
+  const a = new THREE.Vector3(...p1), b = new THREE.Vector3(...p2), dir = b.clone().sub(a);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, dir.length(), 20), mat);
+  m.position.copy(a).add(b).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  return m;
+}
+function ball(p, r, mat = bodyMat) { const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat); m.position.set(...p); return m }
+function dressPoint(d, th, sc) { // body section at d scaled to the dress, pushed out a bit
+  const [a, bF, bB] = interpKeys(M.K, Math.min(d, M.p.yCrotch)), c = Math.cos(th), s = Math.sin(th);
+  const x = a * c, z = (s > 0 ? bF : bB) * s, l = Math.hypot(x, z) || 1;
+  return [x * sc + x / l * DRESS_OFF, M.napeY - d, z * sc + z / l * DRESS_OFF, x, z];
+}
+const dressScale = d => { const [a, f, b] = interpKeys(M.K, Math.min(d, M.p.yCrotch)); return 4 * effW(M.p, d) / ellC(a, (f + b) / 2) };
+
+// ---- rebuild model from measurements
+function rebuild() {
+  const p = draft(), H = S.H, napeY = H * 0.845;
+  M = { p, napeY, K: bodyKeys(p) };
+  const [aH] = interpKeys(M.K, p.yH), hx = aH * 0.48, ab = 15 * Math.PI / 180;
+  const sh = [p.sx * 0.92, napeY - 5, 0], up = H * 0.186, fo = H * 0.146;
+  const el = [sh[0] + Math.sin(ab) * up, sh[1] - Math.cos(ab) * up, 0], wr = [el[0] + Math.sin(ab) * fo, el[1] - Math.cos(ab) * fo, 2];
+  const headR = H * 0.058;
+  M.joints = { head: [0, napeY + headR * 1.5, 0], neck: [0, napeY, 0], sh, el, wr, chest: [0, napeY - p.yArm, -2], waist: [0, napeY - p.yW, -2], pelvis: [0, napeY - p.yH, 0],
+    hip: [hx, napeY - p.yH - 2, 0], knee: [hx * 0.85, H * 0.285, 0], ankle: [hx * 0.75, H * 0.045, 0] };
+  M.rT = aH * 0.5; M.rK = M.rT * 0.6; M.rA = M.rT * 0.38;
+  const J = M.joints, mir = v => [-v[0], v[1], v[2]];
+
+  // body
+  scene.remove(bodyG); bodyG.traverse(o => o.geometry && o.geometry.dispose()); bodyG = new THREE.Group();
+  // dress form: measured torso shell, neck block, flat bottom, pole + tripod
+  const yEnd = p.yCrotch + FORM_BOTTOM, rows = 90, cols = 48, pos = new Float32Array(rows * cols * 3);
+  for (let i = 0; i < rows; i++) {
+    const d = lerp(-1, yEnd, i / (rows - 1)), [a, bF, bB] = interpKeys(M.K, d);
+    for (let j = 0; j < cols; j++) { const th = j / cols * 2 * Math.PI, s = Math.sin(th); pos.set([a * Math.cos(th), napeY - d, (s > 0 ? bF : bB) * s], (i * cols + j) * 3) }
+  }
+  const tg = new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.BufferAttribute(pos, 3)); tg.setIndex(gridIndex(rows, cols)); tg.computeVertexNormals();
+  bodyG.add(new THREE.Mesh(tg, bodyMat));
+  const [ae, fe, be] = interpKeys(M.K, yEnd), bot = new THREE.Mesh(new THREE.CircleGeometry(1, cols), woodMat);
+  bot.rotation.x = Math.PI / 2; bot.scale.set(ae, (fe + be) / 2, 1); bot.position.set(0, napeY - yEnd, (fe - be) / 2); bodyG.add(bot);
+  const neckR = S.cuello / (2 * Math.PI) * 0.85, yTop = napeY + NECK_H, yFoot = napeY - yEnd;
+  bodyG.add(limb([0, napeY - 1, 0], [0, yTop, 0], neckR, neckR * 0.9, bodyMat), limb([0, yTop, 0], [0, yTop + 1.5, 0], neckR * 0.95, neckR * 0.95, woodMat));
+  bodyG.add(limb([0, yFoot, 0], [0, 6, 0], POLE_R, POLE_R, woodMat), ball([0, 6, 0], POLE_R * 2, woodMat));
+  for (let k = 0; k < 3; k++) { const t = k / 3 * 2 * Math.PI + Math.PI / 2; bodyG.add(limb([0, 6, 0], [Math.cos(t) * BASE_R, 1, Math.sin(t) * BASE_R], 1.4, 1, woodMat)) }
+  scene.add(bodyG);
+
+  // skeleton + measurement rings
+  scene.remove(skelG); skelG.traverse(o => o.geometry && o.geometry.dispose()); skelG = new THREE.Group();
+  const segs = [[J.neck, J.chest], [J.chest, J.waist], [J.waist, J.pelvis]];
+  const sg = new THREE.BufferGeometry().setFromPoints(segs.flat().map(v => new THREE.Vector3(...v)));
+  const lines = new THREE.LineSegments(sg, boneMat); lines.renderOrder = 10; skelG.add(lines);
+  const jm = new THREE.MeshBasicMaterial({ color: 0xffd27a, depthTest: false });
+  for (const w of [J.neck, J.chest, J.waist, J.pelvis]) { const b = ball(w, 1.3, jm); b.renderOrder = 11; skelG.add(b) }
+  for (const [d, c] of [[p.yArm + 1, 0xff7ab0], [p.yW, 0xffd24a], [p.yH, 0x4ad8ff]]) {
+    const [a, bF, bB] = interpKeys(M.K, d), pts = [];
+    for (let j = 0; j < 64; j++) { const th = j / 64 * 2 * Math.PI, s = Math.sin(th); pts.push(new THREE.Vector3((a + 0.3) * Math.cos(th), napeY - d, ((s > 0 ? bF : bB) + 0.3) * s)) }
+    const r = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: c, depthTest: false })); r.renderOrder = 10; skelG.add(r);
+  }
+  scene.add(skelG);
+
+  buildBodice(); initCloth(); drawPattern(); applyView();
+  controls.target.set(0, H * 0.55, 0);
+  $('ease').textContent = ES ? `holgura busto +${S.eB} · cintura +${S.eW} · cadera +${S.eH} · ruedo ${(4 * p.hemW).toFixed(0)} cm` : `ease bust +${S.eB} · waist +${S.eW} · hip +${S.eH} · hem ${(4 * p.hemW).toFixed(0)} cm`;
+}
+
+// ---- bodice: fixed surface from neck to waist, with neckline and armholes cut out
+function cut(d, x, z) {
+  const p = M.p, ax = Math.abs(x), nd = z > 0 ? S.escote : S.escE;
+  if (ax < p.nw && d < nd * Math.sqrt(1 - (ax / p.nw) ** 2)) return true;
+  const dA = p.yArm - 1.5;
+  if (d < dA) { const t = clamp((d - 4) / (dA - 4), 0, 1), a = interpKeys(M.K, d)[0]; if (ax > a * (0.9 - 0.18 * Math.sin(t * Math.PI))) return true }
+  return false;
+}
+function buildBodice() {
+  const p = M.p, rows = 80, cols = NC, n = rows * cols, pos = new Float32Array(n * 3), keep = new Uint8Array(n);
+  M.bodiceD = new Float32Array(n);
+  for (let i = 0; i < rows; i++) {
+    const d = lerp(0, p.yW, i / (rows - 1)), sc = d <= p.yArm ? 1 + S.eB / S.B : dressScale(d);
+    for (let j = 0; j < cols; j++) {
+      const k = i * cols + j, q = dressPoint(d, j / cols * 2 * Math.PI, sc);
+      pos.set(q.slice(0, 3), k * 3); keep[k] = !cut(d, q[3], q[4]); M.bodiceD[k] = d;
+    }
+  }
+  if (bodiceM) { scene.remove(bodiceM); bodiceM.geometry.dispose() }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3), 3)); g.setIndex(gridIndex(rows, cols, keep)); g.computeVertexNormals();
+  bodiceM = new THREE.Mesh(g, dressMat); scene.add(bodiceM);
+}
+
+// ---- skirt: verlet cloth hanging from the waist, rest lengths from the pattern
+function initCloth() {
+  if (!M) return;
+  const p = M.p, N = NR * NC, pos = new Float32Array(N * 3), tela = TELAS[S.tela], rowD = new Float32Array(NR);
+  for (let i = 0; i < NR; i++) {
+    const d = rowD[i] = lerp(p.yW, p.yHem, i / (NR - 1)), sc = dressScale(d);
+    for (let j = 0; j < NC; j++) {
+      const th = j / NC * 2 * Math.PI, w = i ? 1 + 0.015 * Math.sin(th * tela.folds) * i / NR + (Math.random() - 0.5) * 0.004 : 1;
+      const q = dressPoint(d, th, sc * w); pos.set(q.slice(0, 3), (i * NC + j) * 3);
+    }
+  }
+  const C = [], id = (i, j) => i * NC + ((j + NC) % NC);
+  const add = (a, b, w) => C.push(a, b, Math.hypot(pos[b * 3] - pos[a * 3], pos[b * 3 + 1] - pos[a * 3 + 1], pos[b * 3 + 2] - pos[a * 3 + 2]), w);
+  for (let i = 0; i < NR; i++) for (let j = 0; j < NC; j++) {
+    add(id(i, j), id(i, j + 1), 1); add(id(i, j), id(i, j + 3), tela.bend);
+    if (i < NR - 1) { add(id(i, j), id(i + 1, j), 1); add(id(i, j), id(i + 1, j + 1), 0.5); add(id(i, j + 1), id(i + 1, j), 0.5) }
+    if (i < NR - 2) add(id(i, j), id(i + 2, j), tela.bend);
+  }
+  cl = { pos, prev: pos.slice(), C: Float32Array.from(C), N, rowD };
+  if (skirtM) { scene.remove(skirtM); skirtM.geometry.dispose() }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 3), 3)); g.setIndex(gridIndex(NR, NC));
+  skirtM = new THREE.Mesh(g, dressMat); skirtM.visible = V.vestido; scene.add(skirtM);
+  recolor();
+}
+function collide(pos, n) {
+  const k = n * 3, x = pos[k], y = pos[k + 1], z = pos[k + 2], d = M.napeY - y;
+  if (d < M.p.yCrotch + FORM_BOTTOM) {
+    const [a, bF, bB] = interpKeys(M.K, d), A = a + MARGIN, B = (z > 0 ? bF : bB) + MARGIN, q = (x / A) ** 2 + (z / B) ** 2;
+    if (q < 1) { const s = 1 / Math.sqrt(q || 1e-6); pos[k] = x * s; pos[k + 2] = z * s }
+  }
+  if (pos[k + 1] < 0.3) pos[k + 1] = 0.3;
+}
+function stepCloth(dt) {
+  const { pos, prev, C, N } = cl, damp = TELAS[S.tela].damp, g = GRAVITY * dt * dt;
+  for (let n = NC; n < N; n++) for (let a = 0; a < 3; a++) {
+    const k = n * 3 + a, v = (pos[k] - prev[k]) * damp; prev[k] = pos[k]; pos[k] += v + (a === 1 ? g : 0);
+  }
+  for (let it = 0; it < ITERS; it++) {
+    for (let c = 0; c < C.length; c += 4) {
+      const ia = C[c] >= NC, ib = C[c + 1] >= NC; if (!ia && !ib) continue;
+      const a = C[c] * 3, b = C[c + 1] * 3, dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1], dz = pos[b + 2] - pos[a + 2];
+      const L = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6, k = (L - C[c + 2]) / L * C[c + 3] / (ia + ib);
+      if (ia) { pos[a] += dx * k; pos[a + 1] += dy * k; pos[a + 2] += dz * k }
+      if (ib) { pos[b] -= dx * k; pos[b + 1] -= dy * k; pos[b + 2] -= dz * k }
+    }
+    for (let n = NC; n < N; n++) collide(pos, n);
+  }
+}
+function recolor() {
+  if (bodiceM) { const c = bodiceM.geometry.attributes.color; for (let k = 0; k < c.count; k++) easeColor(easeAt(M.bodiceD[k])).toArray(c.array, k * 3); c.needsUpdate = true }
+  if (skirtM) { const c = skirtM.geometry.attributes.color; for (let i = 0; i < NR; i++) { easeColor(easeAt(cl.rowD[i])); for (let j = 0; j < NC; j++) _c.toArray(c.array, (i * NC + j) * 3) } c.needsUpdate = true }
+}
+function applyView() {
+  if (bodiceM) bodiceM.visible = V.vestido; if (skirtM) skirtM.visible = V.vestido;
+  skelG.visible = V.esqueleto; bodyMat.transparent = V.esqueleto; bodyMat.opacity = V.esqueleto ? 0.35 : 1;
+  controls.autoRotate = V.girar; $('molde').classList.toggle('hidden', !V.molde); $('stepTxt').style.visibility = V.molde ? '' : 'hidden';
+  recolor();
+}
+
+// ---- flat pattern (SVG), drawn step by step
+function piece(front, ox) {
+  const p = M.p, nd = front ? S.escote : S.escE, sl = front ? 4.5 : 4, apex = front ? p.yArm + 2 : p.yArm, end = front ? p.yH - 4 : p.yH - 2;
+  const dx0 = front ? S.sepB / 2 : Math.min(p.bW * 0.5, 9), f = v => v.toFixed(2), P = (x, y) => `${f(ox + x)},${f(y)}`;
+  const side = []; for (let d = p.yArm; d < p.yHem; d += 0.5) side.push(P(effW(p, d) + dartOpen(p, d, apex, end), d)); side.push(P(p.hemW, p.yHem));
+  const neck = `M${P(0, nd)} Q${P(p.nw, nd)} ${P(p.nw, 0)}`, arm = `C${P(p.sx - (front ? 1.8 : 0.8), sl + (p.yArm - sl) * 0.55)} ${P(p.bW - (front ? 3 : 2), p.yArm)} ${P(p.bW, p.yArm)}`;
+  const outline = `${neck} L${P(p.sx, sl)} ${arm} L${side.join(' L')} L${P(0, p.yHem)} Z`;
+  const W = Math.max(p.bW, p.hW), txt = (x, y, s, c = '#aaa', a = 'start') => `<text x="${f(ox + x)}" y="${f(y)}" fill="${c}" font-size="2.2" text-anchor="${a}">${s}</text>`;
+  const guide = 'stroke="#666" stroke-width="0.25" stroke-dasharray="1 0.8" fill="none"', line = (c, w = 0.45) => `stroke="${c}" stroke-width="${w}" fill="none"`;
+  return [
+    [1, `<rect x="${f(ox)}" y="0" width="${f(W)}" height="${f(p.yHem)}" ${guide}/>` + txt(W / 2, -3, tr(front ? 'DELANTERO' : 'ESPALDA'), '#ddd', 'middle')],
+    [2, [[p.yArm, 'sisa'], [p.yW, 'cintura'], [p.yH, 'cadera']].map(([y, n]) => [y, tr(n)]).map(([y, n]) => `<line x1="${f(ox)}" y1="${f(y)}" x2="${f(ox + W)}" y2="${f(y)}" ${guide}/>` + txt(0.6, y - 0.6, `${n} ${y.toFixed(1)}`, '#777')).join('')],
+    [3, `<path d="${neck}" ${line('#e58bb0')}/>`],
+    [4, `<path d="M${P(p.nw, 0)} L${P(p.sx, sl)}" ${line('#e58bb0')}/>`],
+    [5, `<path d="M${P(p.sx, sl)} ${arm}" ${line('#e58bb0')}/>`],
+    [6, `<path d="M${P(dx0 - p.dart / 2, p.yW)} L${P(dx0, apex)} L${P(dx0 + p.dart / 2, p.yW)} L${P(dx0, end)} Z" ${line('#ffd24a', 0.3)}/>`],
+    [7, `<path d="M${side.join(' L')}" ${line('#e58bb0')}/>` + txt(p.bW + 0.8, p.yArm + 0.8, p.bW.toFixed(1)) + txt(effW(p, p.yW) + p.dart + 0.8, p.yW + 0.8, (p.wW + p.dart).toFixed(1)) + txt(p.hW + 0.8, p.yH + 0.8, p.hW.toFixed(1)) + txt(p.hemW, p.yHem + 3, p.hemW.toFixed(1), '#aaa', 'end')],
+    [8, `<path d="${outline}" fill="rgba(229,139,176,.12)" ${line('#e58bb0').replace('fill="none"', '')}/><line x1="${f(ox + W * 0.45)}" y1="${f(p.yW + 4)}" x2="${f(ox + W * 0.45)}" y2="${f(p.yHem - 6)}" stroke="#aaa" stroke-width="0.3" marker-end="url(#arr)"/>` + txt(-1, p.yHem / 2, tr('doblez'), '#777', 'middle').replace('<text', `<text transform="rotate(-90 ${f(ox - 1)} ${f(p.yHem / 2)})"`)],
+  ];
+}
+function drawPattern() {
+  const p = M.p, W = Math.max(p.bW, p.hemW, p.hW), gap = 10, tot = 2 * W + gap;
+  const els = [...piece(false, 0), ...piece(true, W + gap)].filter(([s]) => s <= step).map(e => e[1]).join('');
+  $('svg').innerHTML = `<svg viewBox="-6 -8 ${tot + 12} ${p.yHem + 16}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+    <defs><pattern id="g5" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M5 0H0V5" fill="none" stroke="#202024" stroke-width="0.2"/></pattern>
+    <marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M0 0L10 5L0 10z" fill="#aaa"/></marker></defs>
+    <rect x="-6" y="-8" width="${tot + 12}" height="${p.yHem + 16}" fill="url(#g5)"/>${els}</svg>`;
+  const T = ES ? [
+    `Rectángulo base: alto = talle + largo falda = ${p.yHem} cm; ancho = (busto + holgura)/4 = ${p.bW.toFixed(1)} cm (o cadera/4 si es mayor). Borde izquierdo = doblez (centro).`,
+    `Guías: sisa a busto/8 + 9 = ${p.yArm.toFixed(1)} cm de la nuca, cintura al talle = ${p.yW}, cadera a talle + alt. cadera = ${p.yH}.`,
+    `Escote: ancho = cuello/6 + 0.5 = ${p.nw.toFixed(1)} cm; profundidad delantero ${S.escote}, espalda ${S.escE}.`,
+    `Hombro: del escote hasta ancho espalda/2 = ${p.sx} cm, cayendo 4 cm (espalda) / 4.5 cm (delantero).`,
+    `Sisa: curva del hombro al costado sobre la línea de sisa; el delantero va más hondo porque el brazo se mueve hacia adelante.`,
+    `Pinza: entre busto y cintura sobran ${(p.bW - p.wW).toFixed(1)} cm por pieza; ${p.dart.toFixed(1)} van a la pinza y el resto se saca por el costado.`,
+    `Costado: cintura (cintura+holg.)/4 + pinza = ${(p.wW + p.dart).toFixed(1)}, cadera (cadera+holg.)/4 = ${p.hW.toFixed(1)}, ruedo cadera/4 + vuelo/4 = ${p.hemW.toFixed(1)}.`,
+    `Listo: hilo (flecha) paralelo al doblez. Cortar 1 espalda y 1 delantero al doblez + margen de costura. Cerrado da ${(4 * p.hemW).toFixed(0)} cm de ruedo.`,
+  ] : [
+    `Base rectangle: height = back length + skirt length = ${p.yHem} cm; width = (bust + ease)/4 = ${p.bW.toFixed(1)} cm (or hip/4 if larger). Left edge = fold (center).`,
+    `Guides: armhole at bust/8 + 9 = ${p.yArm.toFixed(1)} cm from the nape, waist at back length = ${p.yW}, hip at back length + hip depth = ${p.yH}.`,
+    `Neckline: width = neck/6 + 0.5 = ${p.nw.toFixed(1)} cm; depth front ${S.escote}, back ${S.escE}.`,
+    `Shoulder: from the neckline to back width/2 = ${p.sx} cm, dropping 4 cm (back) / 4.5 cm (front).`,
+    `Armhole: curve from the shoulder down to the side on the armhole line; the front goes deeper because the arm moves forward.`,
+    `Dart: between bust and waist there are ${(p.bW - p.wW).toFixed(1)} cm extra per piece; ${p.dart.toFixed(1)} go into the dart and the rest comes off the side.`,
+    `Side: waist (waist+ease)/4 + dart = ${(p.wW + p.dart).toFixed(1)}, hip (hip+ease)/4 = ${p.hW.toFixed(1)}, hem hip/4 + flare/4 = ${p.hemW.toFixed(1)}.`,
+    `Done: grainline (arrow) parallel to the fold. Cut 1 back and 1 front on the fold + seam allowance. Sewn up, the hem is ${(4 * p.hemW).toFixed(0)} cm.`,
+  ];
+  $('stepN').textContent = `${tr('paso')} ${step}/8`; $('stepTxt').textContent = T[step - 1]; $('stepTxt').title = T[step - 1];
+}
+
+rebuild();
+renderer.setAnimationLoop(() => {
+  if (cl && V.vestido) { for (let s = 0; s < SUBSTEPS; s++) stepCloth(1 / 60 / SUBSTEPS); const g = skirtM.geometry; g.attributes.position.needsUpdate = true; g.computeVertexNormals() }
+  controls.update(); renderer.render(scene, camera);
+});
+</script>
+</body></html>
